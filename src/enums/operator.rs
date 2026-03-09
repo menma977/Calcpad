@@ -13,7 +13,7 @@ pub enum Operator {
     Divide,
     #[strum(serialize = "%")]
     Modulo,
-    
+
     // Logic
     #[strum(serialize = "==")]
     Equal,
@@ -31,7 +31,7 @@ pub enum Operator {
     And,
     #[strum(serialize = "||")]
     Or,
-    
+
     // Bitwise
     #[strum(serialize = "&")]
     BitAnd,

@@ -12,7 +12,15 @@ impl CalculatorService {
             state: StateService::new(),
         }
     }
+}
 
+impl Default for CalculatorService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CalculatorService {
     pub fn evaluate_document(&mut self, lines: &[String]) -> Vec<String> {
         self.state.clear();
         let mut results = vec![String::new(); lines.len()];
@@ -39,8 +47,9 @@ impl CalculatorService {
                     true_statements,
                     false_statements,
                 } => {
-                    let cond_val = ExpressionService::evaluate(&self.state, condition).unwrap_or(0.0);
-                    
+                    let cond_val =
+                        ExpressionService::evaluate(&self.state, condition).unwrap_or(0.0);
+
                     if cond_val.abs() >= f64::EPSILON {
                         self.execute_statements(true_statements, results);
                     } else if let Some(false_stmts) = false_statements {
@@ -97,10 +106,15 @@ impl CalculatorService {
         // Formatting function to use '.' as thousands separator and ',' as decimal separator
         let is_negative = value < 0.0;
         let abs_val = value.abs();
-        
+
+        // Guard: if value overflows u64, use scientific notation
+        if abs_val >= u64::MAX as f64 {
+            return format!("{:.6e}", value);
+        }
+
         let integer_part = abs_val.trunc() as u64;
         let int_str = integer_part.to_string();
-        
+
         // Add thousands separator (dot)
         let mut formatted_int = String::new();
         let chars: Vec<char> = int_str.chars().rev().collect();
@@ -116,13 +130,35 @@ impl CalculatorService {
             formatted_int.insert(0, '-');
         }
 
-        if abs_val.fract() == 0.0 {
+        // Check if fractional part is negligible (within epsilon threshold)
+        if abs_val.fract().abs() < f64::EPSILON * abs_val.max(1.0) {
             formatted_int
         } else {
-            // Keep 2 decimal places and use comma
-            let frac_str = format!("{:.2}", abs_val.fract());
-            let frac_part = &frac_str[2..]; // skip "0."
-            format!("{},{}", formatted_int, frac_part)
+            // Format entire number first to handle rounding correctly
+            let rounded_str = format!("{:.2}", abs_val);
+            let parts: Vec<&str> = rounded_str.split('.').collect();
+
+            let integer_formatted = if parts[0].len() > 3 {
+                // Add thousands separator to the integer part
+                let mut result = String::new();
+                let reversed: Vec<char> = parts[0].chars().rev().collect();
+                for (i, c) in reversed.iter().enumerate() {
+                    if i > 0 && i % 3 == 0 {
+                        result.push('.');
+                    }
+                    result.push(*c);
+                }
+                result.chars().rev().collect::<String>()
+            } else {
+                parts[0].to_string()
+            };
+
+            let result = format!("{},{}", integer_formatted, parts[1]);
+            if is_negative {
+                format!("-{}", result)
+            } else {
+                result
+            }
         }
     }
 }

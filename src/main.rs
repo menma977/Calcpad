@@ -15,5 +15,9 @@ fn main() {
             format!("{}.cpad", name)
         }
     });
-    controllers::app_controller::run(file_path).unwrap();
+
+    if let Err(e) = controllers::app_controller::run(file_path) {
+        eprintln!("Fatal error: {}", e);
+        std::process::exit(1);
+    }
 }

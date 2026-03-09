@@ -12,24 +12,26 @@ impl ExpressionService {
 
     fn parse_expression(expression: &str) -> Result<f64, String> {
         let expression = expression.trim();
+        if expression.is_empty() {
+            return Ok(0.0);
+        }
 
+        // Handle parentheses
         if expression.starts_with('(') && expression.ends_with(')') {
             let mut depth = 0;
             let mut valid_outer = true;
-            let chars: Vec<char> = expression.chars().collect();
-
-            for i in 0..chars.len() - 1 {
-                match chars[i] {
+            let char_count = expression.chars().count();
+            for (_, c) in expression.char_indices().take(char_count - 1) {
+                match c {
                     '(' => depth += 1,
                     ')' => depth -= 1,
                     _ => {}
                 }
-                if depth == 0 && i < chars.len() - 1 {
+                if depth == 0 {
                     valid_outer = false;
                     break;
                 }
             }
-
             if valid_outer {
                 return Self::parse_expression(&expression[1..expression.len() - 1]);
             }
@@ -39,54 +41,33 @@ impl ExpressionService {
             return Ok(number);
         }
 
-        if let Some(result) = Self::try_split_ternary(expression) {
-            return result;
-        }
-
-        if let Some(result) = Self::try_split_operator(expression, &[Operator::Or, Operator::And]) {
-            return result;
-        }
-
-        if let Some(result) = Self::try_split_operator(
-            expression,
-            &[Operator::BitOr, Operator::BitXor, Operator::BitAnd],
-        ) {
-            return result;
-        }
-
-        if let Some(result) = Self::try_split_operator(
-            expression,
-            &[
-                Operator::Equal,
-                Operator::NotEqual,
+        // Operator precedence groups (lowest to highest)
+        let op_groups = [
+            vec![Operator::Or],
+            vec![Operator::And],
+            vec![Operator::BitOr],
+            vec![Operator::BitXor],
+            vec![Operator::BitAnd],
+            vec![Operator::Equal, Operator::NotEqual],
+            vec![
                 Operator::GreaterEqual,
                 Operator::LessEqual,
                 Operator::GreaterThan,
                 Operator::LessThan,
             ],
-        ) {
+            vec![Operator::ShiftLeft, Operator::ShiftRight],
+            vec![Operator::Add, Operator::Subtract],
+            vec![Operator::Multiply, Operator::Divide, Operator::Modulo],
+        ];
+
+        if let Some(result) = Self::try_split_ternary(expression) {
             return result;
         }
 
-        if let Some(result) = Self::try_split_operator(
-            expression,
-            &[Operator::ShiftLeft, Operator::ShiftRight],
-        ) {
-            return result;
-        }
-
-        if let Some(result) = Self::try_split_operator(
-            expression,
-            &[Operator::Add, Operator::Subtract],
-        ) {
-            return result;
-        }
-
-        if let Some(result) = Self::try_split_operator(
-            expression,
-            &[Operator::Multiply, Operator::Divide, Operator::Modulo],
-        ) {
-            return result;
+        for group in &op_groups {
+            if let Some(result) = Self::try_split_operator(expression, group) {
+                return result;
+            }
         }
 
         Err(format!("cannot parse: {}", expression))
@@ -94,28 +75,24 @@ impl ExpressionService {
 
     fn try_split_ternary(expression: &str) -> Option<Result<f64, String>> {
         let mut depth = 0i32;
-        let chars: Vec<char> = expression.chars().collect();
-
-        for i in 0..chars.len() {
-            match chars[i] {
+        for (i, c) in expression.char_indices() {
+            match c {
                 '(' => depth += 1,
                 ')' => depth -= 1,
                 '?' if depth == 0 => {
-                    let condition_str = chars[..i].iter().collect::<String>();
-
-                    let mut j = i + 1;
+                    let condition_str = &expression[..i];
                     let mut inner_ternary = 0;
                     let mut colon_idx = None;
                     let mut temp_depth = 0;
 
-                    while j < chars.len() {
-                        match chars[j] {
+                    for (idx, cur_c) in expression[i + 1..].char_indices() {
+                        match cur_c {
                             '(' => temp_depth += 1,
                             ')' => temp_depth -= 1,
                             '?' if temp_depth == 0 => inner_ternary += 1,
                             ':' if temp_depth == 0 => {
                                 if inner_ternary == 0 {
-                                    colon_idx = Some(j);
+                                    colon_idx = Some(i + 1 + idx);
                                     break;
                                 } else {
                                     inner_ternary -= 1;
@@ -123,23 +100,22 @@ impl ExpressionService {
                             }
                             _ => {}
                         }
-                        j += 1;
                     }
 
                     return if let Some(c_idx) = colon_idx {
-                        let true_branch = chars[i + 1..c_idx].iter().collect::<String>();
-                        let false_branch = chars[c_idx + 1..].iter().collect::<String>();
+                        let true_branch = &expression[i + 1..c_idx];
+                        let false_branch = &expression[c_idx + 1..];
 
-                        let condition_val = match Self::parse_expression(&condition_str) {
-                            Ok(v) => v,
-                            Err(e) => return Some(Err(e)),
-                        };
-
-                        Some(if condition_val.abs() >= f64::EPSILON {
-                            Self::parse_expression(&true_branch)
-                        } else {
-                            Self::parse_expression(&false_branch)
-                        })
+                        match Self::parse_expression(condition_str) {
+                            Ok(cond_val) => {
+                                if cond_val.abs() >= f64::EPSILON {
+                                    Some(Self::parse_expression(true_branch))
+                                } else {
+                                    Some(Self::parse_expression(false_branch))
+                                }
+                            }
+                            Err(e) => Some(Err(e)),
+                        }
                     } else {
                         Some(Err("missing ':' in ternary expression".to_string()))
                     };
@@ -151,81 +127,143 @@ impl ExpressionService {
     }
 
     fn try_split_operator(expression: &str, operators: &[Operator]) -> Option<Result<f64, String>> {
-        let chars: Vec<char> = expression.chars().collect();
         let mut depth = 0i32;
+        let chars: Vec<(usize, char)> = expression.char_indices().collect();
+        let mut i = chars.len();
 
-        let mut index = chars.len();
-        while index > 0 {
-            index -= 1;
-            match chars[index] {
+        while i > 0 {
+            i -= 1;
+            let (byte_idx, c) = chars[i];
+            match c {
                 ')' => depth += 1,
                 '(' => depth -= 1,
-                _ => {
-                    if depth == 0 {
-                        for op in operators {
-                            let op_str: &'static str = (*op).into();
-                            let op_chars: Vec<char> = op_str.chars().collect();
-                            let op_len = op_chars.len();
-
-                            if index + op_len <= chars.len()
-                                && &chars[index..index + op_len] == op_chars.as_slice()
+                _ if depth == 0 => {
+                    for op in operators {
+                        let op_str: &'static str = (*op).into();
+                        if expression[byte_idx..].starts_with(op_str) {
+                            if byte_idx == 0 && (*op == Operator::Add || *op == Operator::Subtract)
                             {
-                                if index == 0
-                                    && (*op == Operator::Add || *op == Operator::Subtract)
-                                {
-                                    continue;
-                                }
-
-                                let left = chars[..index].iter().collect::<String>();
-                                let right = chars[index + op_len..].iter().collect::<String>();
-
-                                let left_value = match Self::parse_expression(&left) {
-                                    Ok(value) => value,
-                                    Err(error) => return Some(Err(error)),
-                                };
-                                let right_value = match Self::parse_expression(&right) {
-                                    Ok(value) => value,
-                                    Err(error) => return Some(Err(error)),
-                                };
-
-                                return Some(match op {
-                                    Operator::Add => Ok(left_value + right_value),
-                                    Operator::Subtract => Ok(left_value - right_value),
-                                    Operator::Multiply => Ok(left_value * right_value),
-                                    Operator::Modulo => {
-                                        if right_value == 0.0 {
-                                            Err("modulo by zero".to_string())
-                                        } else {
-                                            Ok(left_value % right_value)
-                                        }
-                                    }
-                                    Operator::Divide => {
-                                        if right_value == 0.0 {
-                                            Err("division by zero".to_string())
-                                        } else {
-                                            Ok(left_value / right_value)
-                                        }
-                                    }
-                                    Operator::Equal => Ok(if (left_value - right_value).abs() < f64::EPSILON { 1.0 } else { 0.0 }),
-                                    Operator::NotEqual => Ok(if (left_value - right_value).abs() >= f64::EPSILON { 1.0 } else { 0.0 }),
-                                    Operator::GreaterEqual => Ok(if left_value >= right_value { 1.0 } else { 0.0 }),
-                                    Operator::LessEqual => Ok(if left_value <= right_value { 1.0 } else { 0.0 }),
-                                    Operator::GreaterThan => Ok(if left_value > right_value { 1.0 } else { 0.0 }),
-                                    Operator::LessThan => Ok(if left_value < right_value { 1.0 } else { 0.0 }),
-                                    Operator::And => Ok(if left_value != 0.0 && right_value != 0.0 { 1.0 } else { 0.0 }),
-                                    Operator::Or => Ok(if left_value != 0.0 || right_value != 0.0 { 1.0 } else { 0.0 }),
-                                    Operator::BitAnd => Ok((left_value as i64 & right_value as i64) as f64),
-                                    Operator::BitOr => Ok((left_value as i64 | right_value as i64) as f64),
-                                    Operator::BitXor => Ok((left_value as i64 ^ right_value as i64) as f64),
-                                    Operator::ShiftLeft => Ok((left_value as i64).wrapping_shl(right_value as u32) as f64),
-                                    Operator::ShiftRight => Ok((left_value as i64).wrapping_shr(right_value as u32) as f64),
-                                });
+                                continue;
                             }
+
+                            let left = &expression[..byte_idx];
+                            let right = &expression[byte_idx + op_str.len()..];
+
+                            let left_val = match Self::parse_expression(left) {
+                                Ok(v) => v,
+                                Err(e) => return Some(Err(e)),
+                            };
+                            let right_val = match Self::parse_expression(right) {
+                                Ok(v) => v,
+                                Err(e) => return Some(Err(e)),
+                            };
+
+                            return Some(Self::apply_operator(*op, left_val, right_val));
                         }
                     }
                 }
+                _ => {}
             }
         }
         None
+    }
+
+    fn apply_operator(op: Operator, left: f64, right: f64) -> Result<f64, String> {
+        match op {
+            Operator::Add => Ok(left + right),
+            Operator::Subtract => Ok(left - right),
+            Operator::Multiply => Ok(left * right),
+            Operator::Divide => {
+                if right == 0.0 {
+                    Err("division by zero".to_string())
+                } else {
+                    Ok(left / right)
+                }
+            }
+            Operator::Modulo => {
+                if right == 0.0 {
+                    Err("modulo by zero".to_string())
+                } else {
+                    Ok(left % right)
+                }
+            }
+            Operator::Equal => Ok(if (left - right).abs() < f64::EPSILON {
+                1.0
+            } else {
+                0.0
+            }),
+            Operator::NotEqual => Ok(if (left - right).abs() >= f64::EPSILON {
+                1.0
+            } else {
+                0.0
+            }),
+            Operator::GreaterEqual => Ok(if left >= right { 1.0 } else { 0.0 }),
+            Operator::LessEqual => Ok(if left <= right { 1.0 } else { 0.0 }),
+            Operator::GreaterThan => Ok(if left > right { 1.0 } else { 0.0 }),
+            Operator::LessThan => Ok(if left < right { 1.0 } else { 0.0 }),
+            Operator::And => Ok(if left != 0.0 && right != 0.0 {
+                1.0
+            } else {
+                0.0
+            }),
+            Operator::Or => Ok(if left != 0.0 || right != 0.0 {
+                1.0
+            } else {
+                0.0
+            }),
+            Operator::BitAnd => {
+                let left_i64 = Self::safe_to_i64(left)?;
+                let right_i64 = Self::safe_to_i64(right)?;
+                Ok((left_i64 & right_i64) as f64)
+            }
+            Operator::BitOr => {
+                let left_i64 = Self::safe_to_i64(left)?;
+                let right_i64 = Self::safe_to_i64(right)?;
+                Ok((left_i64 | right_i64) as f64)
+            }
+            Operator::BitXor => {
+                let left_i64 = Self::safe_to_i64(left)?;
+                let right_i64 = Self::safe_to_i64(right)?;
+                Ok((left_i64 ^ right_i64) as f64)
+            }
+            Operator::ShiftLeft => {
+                let left_i64 = Self::safe_to_i64(left)?;
+                let shift_amount = Self::safe_shift_amount(right)?;
+                Ok((left_i64).wrapping_shl(shift_amount) as f64)
+            }
+            Operator::ShiftRight => {
+                let left_i64 = Self::safe_to_i64(left)?;
+                let shift_amount = Self::safe_shift_amount(right)?;
+                Ok((left_i64).wrapping_shr(shift_amount) as f64)
+            }
+        }
+    }
+
+    fn safe_to_i64(val: f64) -> Result<i64, String> {
+        if !val.is_finite() {
+            Err(format!("value must be finite, got {}", val))
+        } else if val > i64::MAX as f64 || val < i64::MIN as f64 {
+            Err(format!(
+                "value {} is out of range for bitwise operation (must be between {} and {})",
+                val,
+                i64::MIN,
+                i64::MAX
+            ))
+        } else {
+            Ok(val as i64)
+        }
+    }
+
+    fn safe_shift_amount(val: f64) -> Result<u32, String> {
+        if !val.is_finite() {
+            Err(format!("shift amount must be finite, got {}", val))
+        } else if val < 0.0 || val > 63.0 {
+            Err(format!(
+                "shift amount {} is out of range (must be 0..=63)",
+                val
+            ))
+        } else {
+            Ok(val as u32)
+        }
     }
 }

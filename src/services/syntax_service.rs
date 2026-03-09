@@ -1,9 +1,6 @@
+use crate::views::thames::{COLOR_PRIMARY, COLOR_SECONDARY};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-
-// Custom Colors based on request
-const COLOR_PRIMARY: Color = Color::Rgb(214, 113, 158);   // #d6719e (Pinkish)
-const COLOR_SECONDARY: Color = Color::Rgb(97, 175, 239); // #61afef (Blueish)
 
 /// Parses a line and returns it with syntax highlighting.
 pub fn highlight_line(line: &str) -> Line<'_> {
@@ -45,60 +42,55 @@ pub fn highlight_line(line: &str) -> Line<'_> {
 /// Highlights numbers, operators, and variable references in an expression.
 fn highlight_expression(expression: &str) -> Vec<Span<'_>> {
     let mut spans: Vec<Span> = Vec::new();
-    let mut current = String::new();
+    let mut start_idx = 0;
 
-    let push_current = |spans: &mut Vec<Span<'_>>, current: &mut String| {
-        if !current.is_empty() {
-            let is_number = current.chars().all(|c| c.is_ascii_digit() || c == '.');
-            let is_keyword = current == "if"
-                || current == "else"
-                || current == "true"
-                || current == "false";
+    let chars: Vec<(usize, char)> = expression.char_indices().collect();
+    let mut i = 0;
 
-            let color = if is_number {
-                Color::LightYellow
-            } else if is_keyword {
-                COLOR_PRIMARY
-            } else {
-                COLOR_SECONDARY // variables
-            };
+    while i < chars.len() {
+        let (byte_idx, c) = chars[i];
 
-            spans.push(Span::styled(current.clone(), Style::default().fg(color)));
-            current.clear();
+        match c {
+            '+' | '-' | '*' | '/' | '%' | '=' | '!' | '>' | '<' | '&' | '|' | '^' | '?' | ':'
+            | '(' | ')' | '{' | '}' | '[' | ']' | ' ' | ',' | ';' => {
+                // Push previous word if exists
+                if byte_idx > start_idx {
+                    spans.push(create_word_span(&expression[start_idx..byte_idx]));
+                }
+
+                // Style for the operator/symbol
+                let color = match c {
+                    '(' | ')' | '{' | '}' | '[' | ']' => Color::DarkGray,
+                    ' ' | ',' | ';' => Color::Reset,
+                    _ => COLOR_PRIMARY,
+                };
+                spans.push(Span::styled(c.to_string(), Style::default().fg(color)));
+
+                start_idx = byte_idx + c.len_utf8();
+            }
+            _ => {}
         }
+        i += 1;
+    }
+
+    if start_idx < expression.len() {
+        spans.push(create_word_span(&expression[start_idx..]));
+    }
+
+    spans
+}
+
+fn create_word_span(word: &str) -> Span<'_> {
+    let is_number = word.chars().all(|c| c.is_ascii_digit() || c == '.');
+    let is_keyword = word == "if" || word == "else" || word == "true" || word == "false";
+
+    let color = if is_number {
+        Color::LightYellow
+    } else if is_keyword {
+        COLOR_PRIMARY
+    } else {
+        COLOR_SECONDARY // variables
     };
 
-    for character in expression.chars() {
-        match character {
-            '0'..='9' | '.' | 'a'..='z' | 'A'..='Z' | '_' => {
-                current.push(character);
-            }
-            '+' | '-' | '*' | '/' | '%' | '=' | '!' | '>' | '<' | '&' | '|' | '^' | '?' | ':' => {
-                push_current(&mut spans, &mut current);
-                spans.push(Span::styled(
-                    character.to_string(),
-                    Style::default().fg(COLOR_PRIMARY), // Operators use primary
-                ));
-            }
-            '(' | ')' | '{' | '}' | '[' | ']' => {
-                push_current(&mut spans, &mut current);
-                spans.push(Span::styled(
-                    character.to_string(),
-                    Style::default().fg(Color::DarkGray), // Brackets
-                ));
-            }
-            ' ' | ',' | ';' => {
-                push_current(&mut spans, &mut current);
-                spans.push(Span::styled(
-                    character.to_string(),
-                    Style::default().fg(Color::Reset),
-                ));
-            }
-            _ => {
-                current.push(character);
-            }
-        }
-    }
-    push_current(&mut spans, &mut current);
-    spans
+    Span::styled(word.to_string(), Style::default().fg(color))
 }

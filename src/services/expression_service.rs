@@ -37,6 +37,7 @@ impl ExpressionService {
                 }
             }
             if valid_outer {
+                // Safe: '(' and ')' are always ASCII (1 byte each), so byte-index boundaries are correct
                 return Self::parse_expression(&expression[1..expression.len() - 1]);
             }
         }
@@ -145,6 +146,14 @@ impl ExpressionService {
                     for op in operators {
                         let op_str: &'static str = (*op).into();
                         if expression[byte_idx..].starts_with(op_str) {
+                            // Reject if this single-char operator is a prefix of a longer operator
+                            if op_str == ">" && expression[byte_idx..].starts_with(">>") {
+                                continue;
+                            }
+                            if op_str == "<" && expression[byte_idx..].starts_with("<<") {
+                                continue;
+                            }
+
                             if byte_idx == 0 && (*op == Operator::Add || *op == Operator::Subtract)
                             {
                                 continue;

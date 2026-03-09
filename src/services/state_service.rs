@@ -39,6 +39,13 @@ impl StateService {
         sorted_vars.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
 
         for (variable_name, value) in sorted_vars {
+            // Reject non-finite values early
+            if !value.is_finite() {
+                return Err(format!(
+                    "variable '{}' has non-finite value ({})",
+                    variable_name, value
+                ));
+            }
             result = Self::replace_variable_token(&result, variable_name, &value.to_string());
         }
         Ok(result)

@@ -16,7 +16,7 @@ pub fn handle_autocomplete_keys(
         KeyCode::Up => {
             let idx = app.autocomplete_index.unwrap_or(0);
             app.autocomplete_index = Some(if idx == 0 {
-                app.autocomplete_options.len() - 1
+                app.autocomplete_options.len().saturating_sub(1)
             } else {
                 idx - 1
             });

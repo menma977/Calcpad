@@ -48,6 +48,7 @@ pub fn handle_editing_keys(
             app.results.insert(app.cursor_line, String::new());
             app.cursor_col = 0;
             app.clear_autocomplete();
+            app.results = calculator.evaluate_document(&app.lines);
         }
         KeyCode::Up => move_cursor_up(app),
         KeyCode::Down => move_cursor_down(app),

@@ -14,11 +14,13 @@ impl App {
     }
 
     pub fn get_current_line(&self) -> &String {
-        &self.lines[self.cursor_line]
+        let clamped_line = self.cursor_line.min(self.lines.len().saturating_sub(1));
+        &self.lines[clamped_line]
     }
 
     pub fn get_current_line_mut(&mut self) -> &mut String {
-        &mut self.lines[self.cursor_line]
+        let clamped_line = self.cursor_line.min(self.lines.len().saturating_sub(1));
+        &mut self.lines[clamped_line]
     }
 
     pub fn get_current_word_bounds(&self) -> (usize, usize) {

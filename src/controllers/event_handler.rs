@@ -105,11 +105,15 @@ fn copy_result_to_clipboard(
 ) {
     let result_text = &app.results[line_idx];
     if !result_text.is_empty() && !result_text.starts_with("error") {
-        let clean_result = result_text
-            .strip_prefix("= ")
-            .unwrap_or(result_text)
-            .replace(".", "")
-            .replace(",", ".");
+        let clean_result = result_text.strip_prefix("= ").unwrap_or(result_text);
+
+        // For scientific notation, don't strip thousands separators
+        let clean_result = if clean_result.contains('e') || clean_result.contains('E') {
+            clean_result.to_string()
+        } else {
+            clean_result.replace(".", "").replace(",", ".")
+        };
+
         if let Some(cb) = clipboard {
             if cb.set_text(clean_result).is_ok() {
                 app.set_status("Result copied to clipboard!");

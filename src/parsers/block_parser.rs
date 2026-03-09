@@ -88,11 +88,78 @@ impl BlockParser {
     }
 
     fn parse_if_block(lines: &[String], start_index: usize) -> (Statement, usize) {
+        // PASS 1: Scan original lines to find where the if-else block ends
+        let mut block_end_line = start_index;
+        let mut depth = 0i32;
+        let mut in_string = false;
+        let mut escape_next = false;
+        let mut found_opening_brace = false;
+        let mut found_first_closing_brace = false;
+
+        'scan_outer: for (offset, line) in lines.iter().enumerate().skip(start_index) {
+            for c in line.chars() {
+                if escape_next {
+                    escape_next = false;
+                    continue;
+                }
+
+                if c == '\\' && in_string {
+                    escape_next = true;
+                    continue;
+                }
+
+                if c == '"' {
+                    in_string = !in_string;
+                    continue;
+                }
+
+                if !in_string {
+                    match c {
+                        '{' => {
+                            depth += 1;
+                            found_opening_brace = true;
+                        }
+                        '}' => {
+                            depth -= 1;
+                            if found_opening_brace && depth == 0 && !found_first_closing_brace {
+                                found_first_closing_brace = true;
+                            } else if found_first_closing_brace && depth == 0 {
+                                block_end_line = offset;
+                                break 'scan_outer;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if found_first_closing_brace && depth == 0 {
+                let trimmed = line.trim();
+                let next_line_is_else = lines
+                    .get(offset + 1)
+                    .map(|l| l.trim().starts_with("else"))
+                    .unwrap_or(false);
+                if !trimmed.starts_with("else") && !next_line_is_else && !trimmed.is_empty() {
+                    block_end_line = offset;
+                    break 'scan_outer;
+                }
+            }
+        }
+
+        if !found_opening_brace || !found_first_closing_brace {
+            block_end_line = lines.len().saturating_sub(1);
+        }
+
+        // PASS 2: Concatenate only lines from start_index to block_end_line (inclusive)
         let mut full_text = String::new();
         let mut line_byte_ranges: Vec<(usize, usize, usize)> = Vec::new(); // (byte_start, byte_end, line_idx)
 
-        // Concatenate lines into a single stream, tracking byte ranges for each line
-        for (idx, line) in lines.iter().enumerate().skip(start_index) {
+        for (idx, line) in lines
+            .iter()
+            .enumerate()
+            .skip(start_index)
+            .take(block_end_line - start_index + 1)
+        {
             let byte_start = full_text.len();
             let line_with_newline = format!("{}\n", line);
             full_text.push_str(&line_with_newline);
@@ -180,11 +247,8 @@ impl BlockParser {
             && (temp_cursor + 4 >= chars.len() || !chars[temp_cursor + 4].is_alphanumeric())
         {
             cursor = temp_cursor + 4;
-            if let Some((content_start, content_end, next_cursor)) =
-                Self::find_next_block(&chars, cursor)
-            {
+            if let Some((content_start, content_end, _)) = Self::find_next_block(&chars, cursor) {
                 false_block_indices = Some((content_start, content_end));
-                cursor = next_cursor;
             }
         }
 
@@ -194,9 +258,20 @@ impl BlockParser {
             let mut current_line_idx: Option<usize> = None;
             let mut current_content = String::new();
 
+            // Build char-to-byte lookup table once
+            let char_to_byte: Vec<usize> = full_text
+                .char_indices()
+                .map(|(byte_idx, _)| byte_idx)
+                .chain(std::iter::once(full_text.len()))
+                .collect();
+
             for char_idx in start..end {
-                // Convert char index to byte index in full_text
-                let byte_idx = full_text[..char_idx].len();
+                // Convert char index to byte index using lookup table
+                let byte_idx = if char_idx < char_to_byte.len() {
+                    char_to_byte[char_idx]
+                } else {
+                    full_text.len()
+                };
 
                 // Find which line this byte index belongs to via binary search
                 let line_idx = line_byte_ranges
@@ -246,27 +321,13 @@ impl BlockParser {
         let true_statements = true_block_indices.map(extract_stmts).unwrap_or_default();
         let false_statements = false_block_indices.map(extract_stmts);
 
-        // Find end_line using binary search on ranges
-        let end_line = match line_byte_ranges
-            .binary_search_by_key(&(cursor as i32), |&(byte_start, _, _)| byte_start as i32)
-        {
-            Ok(idx) => line_byte_ranges[idx].2 + 1,
-            Err(idx) => {
-                if idx > 0 && idx <= line_byte_ranges.len() {
-                    line_byte_ranges[idx - 1].2 + 1
-                } else {
-                    start_index + 1
-                }
-            }
-        };
-
         (
             Statement::IfBlock {
                 condition,
                 true_statements,
                 false_statements,
             },
-            end_line,
+            block_end_line + 1,
         )
     }
 
@@ -283,6 +344,9 @@ impl BlockParser {
     }
 
     fn is_if_keyword(line: &str) -> bool {
-        line == "if" || line.starts_with("if(") || line.starts_with("if ")
+        line == "if"
+            || line.starts_with("if(")
+            || line.starts_with("if ")
+            || line.starts_with("if\t")
     }
 }

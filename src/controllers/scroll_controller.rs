@@ -25,10 +25,12 @@ pub fn update_scroll(app: &mut App, terminal: &AppTerminal) -> io::Result<()> {
         .saturating_sub(result_panel_width)
         .saturating_sub(2);
 
-    if app.cursor_col >= app.scroll_x as usize + code_panel_width as usize {
-        app.scroll_x = app.cursor_col.saturating_sub(code_panel_width as usize - 1) as u16;
-    } else if app.cursor_col < app.scroll_x as usize {
-        app.scroll_x = app.cursor_col as u16;
+    if code_panel_width > 0 {
+        if app.cursor_col >= app.scroll_x as usize + code_panel_width as usize {
+            app.scroll_x = app.cursor_col.saturating_sub(code_panel_width as usize - 1) as u16;
+        } else if app.cursor_col < app.scroll_x as usize {
+            app.scroll_x = app.cursor_col as u16;
+        }
     }
     Ok(())
 }

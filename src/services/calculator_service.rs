@@ -38,7 +38,8 @@ impl CalculatorService {
                     let res = self.evaluate_single_line(content);
                     // Only update the result if it's not empty, otherwise we might overwrite
                     // results from previous statements on the same line (if using `;`)
-                    if !res.is_empty() {
+                    // Guard against out-of-bounds index
+                    if !res.is_empty() && *index < results.len() {
                         results[*index] = res;
                     }
                 }
@@ -85,6 +86,11 @@ impl CalculatorService {
                 && !variable_name.ends_with('!')
             {
                 let expression = line[position + 1..].trim();
+
+                if expression.starts_with('"') && expression.ends_with('"') && expression.len() >= 2
+                {
+                    return "error: string values are not supported".to_string();
+                }
 
                 return match ExpressionService::evaluate(&self.state, expression) {
                     Ok(value) => {
@@ -135,7 +141,7 @@ impl CalculatorService {
         };
 
         // Check if the fractional part is negligible (within an epsilon threshold)
-        if abs_val.fract().abs() < f64::EPSILON * abs_val.max(1.0) {
+        if abs_val.fract().abs() < 1e-9 {
             formatted_int
         } else {
             // Format the entire number first to handle rounding correctly

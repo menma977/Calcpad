@@ -45,9 +45,32 @@ pub fn run(file_path: Option<String>) -> io::Result<()> {
     }
 
     loop {
+        // Adjust scroll offset based on cursor line and terminal height
+        // The main area has height: frame.area().height - 1 (for status bar) - 2 (for borders)
+        let main_height = terminal.size()?.height.saturating_sub(3) as usize;
+        if app.cursor_line >= app.scroll_offset as usize + main_height {
+            app.scroll_offset = (app.cursor_line - main_height + 1) as u16;
+        } else if app.cursor_line < app.scroll_offset as usize {
+            app.scroll_offset = app.cursor_line as u16;
+        }
+
         terminal.draw(|frame| app_view::render(frame, &app))?;
 
         if let Event::Key(key) = event::read()? {
+            // Clear a status message on the next user input if the timer is expired or doesn't exist
+            if let Some(timer) = app.status_timer {
+                if timer.elapsed().as_secs() >= 3 {
+                    app.status_message = None;
+                    app.status_timer = None;
+                }
+            } else if app.status_message.is_some() {
+                app.status_message = None;
+            }
+
+            if key.code == KeyCode::Char('c') && key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                break;
+            }
+
             match app.mode {
                 AppMode::SavePrompt => {
                     match key.code {
@@ -65,8 +88,16 @@ pub fn run(file_path: Option<String>) -> io::Result<()> {
                                 } else {
                                     format!("{}.cpad", name)
                                 };
-                                if file_manager_repository::save(&app.lines, &path).is_ok() {
-                                    app.file_path = Some(path);
+                                match file_manager_repository::save(&app.lines, &path) {
+                                    Ok(_) => {
+                                        app.file_path = Some(path);
+                                        app.status_message = Some("Saved successfully!".to_string());
+                                        app.status_timer = Some(std::time::Instant::now());
+                                    }
+                                    Err(e) => {
+                                        app.status_message = Some(format!("Error saving: {}", e));
+                                        app.status_timer = Some(std::time::Instant::now());
+                                    }
                                 }
                             }
                             app.mode = AppMode::Editing;
@@ -85,7 +116,16 @@ pub fn run(file_path: Option<String>) -> io::Result<()> {
                             match &app.file_path {
                                 Some(path) => {
                                     let path = path.clone();
-                                    file_manager_repository::save(&app.lines, &path).ok();
+                                    match file_manager_repository::save(&app.lines, &path) {
+                                        Ok(_) => {
+                                            app.status_message = Some("Saved successfully!".to_string());
+                                            app.status_timer = Some(std::time::Instant::now());
+                                        }
+                                        Err(e) => {
+                                            app.status_message = Some(format!("Error saving: {}", e));
+                                            app.status_timer = Some(std::time::Instant::now());
+                                        }
+                                    }
                                 }
                                 None => {
                                     app.mode = AppMode::SavePrompt;
@@ -126,14 +166,12 @@ pub fn run(file_path: Option<String>) -> io::Result<()> {
                         }
                         KeyCode::Delete => {
                             let line_length = app.lines[app.cursor_line].chars().count();
-                            if app.cursor_col < line_length {
-                                if let Some((byte_index, _)) = app.lines[app.cursor_line]
-                                    .char_indices()
-                                    .nth(app.cursor_col)
-                                {
-                                    app.lines[app.cursor_line].remove(byte_index);
-                                    recalculate(&mut app, &mut calculator);
-                                }
+                            if let Some((byte_index, _)) = (app.cursor_col < line_length)
+                                .then(|| app.lines[app.cursor_line].char_indices().nth(app.cursor_col))
+                                .flatten()
+                            {
+                                app.lines[app.cursor_line].remove(byte_index);
+                                recalculate(&mut app, &mut calculator);
                             }
                         }
                         KeyCode::Enter => {
@@ -194,9 +232,5 @@ pub fn run(file_path: Option<String>) -> io::Result<()> {
 /// Recalculates all lines from scratch whenever the input changes.
 /// Variables are re-evaluated top to bottom so dependencies stay consistent.
 fn recalculate(app: &mut App, calculator: &mut CalculatorService) {
-    calculator.variables.clear();
-    app.results.resize(app.lines.len(), String::new());
-    for (index, line) in app.lines.iter().enumerate() {
-        app.results[index] = calculator.evaluate_line(line);
-    }
+    app.results = calculator.evaluate_document(&app.lines);
 }

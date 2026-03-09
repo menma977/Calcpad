@@ -1,8 +1,10 @@
 mod controllers;
+mod enums;
+mod models;
+mod parsers;
+mod repositories;
 mod services;
 mod views;
-mod models;
-mod repositories;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

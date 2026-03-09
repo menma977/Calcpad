@@ -19,6 +19,10 @@ impl StateService {
         self.variables.clear();
     }
 
+    pub fn get_variable_names(&self) -> Vec<String> {
+        self.variables.keys().cloned().collect()
+    }
+
     pub fn replace_variables(&self, expression: &str) -> Result<String, String> {
         let mut result = expression.to_string();
 

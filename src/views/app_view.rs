@@ -67,7 +67,7 @@ pub fn render(frame: &mut Frame, app: &App) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(COLOR_BG_DARK)),
         )
-        .scroll((app.scroll_offset, 0));
+        .scroll((app.scroll_offset, app.scroll_x)); // Added horizontal scroll
     frame.render_widget(input_panel, columns[1]);
 
     // Result panel — primary color for values
@@ -107,7 +107,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         .scroll((app.scroll_offset, 0));
     frame.render_widget(result_panel, columns[2]);
 
-    // Status bar - Using the dark background provided and primary/secondary colors
+    // Status bar
     let file_name = app.file_path.as_deref().unwrap_or("unsaved");
     let status = match &app.status_message {
         Some(msg) => format!(" {}  |  {}", file_name, msg),
@@ -138,11 +138,63 @@ pub fn render(frame: &mut Frame, app: &App) {
         frame.render_widget(Clear, popup_area);
         frame.render_widget(popup, popup_area);
     } else {
-        // Only show the cursor in editing mode, adjusted for scroll offset
+        // Render Autocomplete Popup
+        if !app.autocomplete_options.is_empty() {
+            let display_y = app.cursor_line.saturating_sub(app.scroll_offset as usize);
+            let display_x = app.cursor_col.saturating_sub(app.scroll_x as usize);
+            
+            // Limit the popup size and prevent it from going out of bounds
+            let popup_height = (app.autocomplete_options.len() as u16 + 2).min(5); 
+            let mut popup_width = 20;
+            
+            for option in &app.autocomplete_options {
+                if option.len() as u16 + 4 > popup_width {
+                    popup_width = option.len() as u16 + 4;
+                }
+            }
+
+            // Calculate x and y taking into account the borders
+            let x = columns[1].x + display_x as u16 + 1; // +1 for left border
+            let mut y = columns[1].y + display_y as u16 + 2; // +1 for top border, +1 for next line
+
+            // Flip above if not enough space below
+            if y + popup_height > screen.height && y > popup_height + 2 {
+                y = y.saturating_sub(popup_height + 1);
+            }
+
+            let popup_area = Rect {
+                x,
+                y,
+                width: popup_width.min(columns[1].width.saturating_sub(display_x as u16)),
+                height: popup_height,
+            };
+
+            let items: Vec<ListItem> = app.autocomplete_options.iter().map(|option| {
+                ListItem::new(option.clone()).style(Style::default().fg(COLOR_SECONDARY)) // Unselected is Blue
+            }).collect();
+
+            let popup = List::new(items)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(COLOR_SECONDARY)) // Border is Blue
+                    .bg(COLOR_BG_DARK)) // Background remains Dark #1e222a
+                .highlight_style(Style::default()
+                    .fg(COLOR_PRIMARY) // Selected item turns Pink
+                    .add_modifier(Modifier::BOLD)) // Bold for emphasis
+                .highlight_symbol("> "); 
+            
+            let mut state = ListState::default().with_selected(app.autocomplete_index);
+            
+            frame.render_widget(Clear, popup_area);
+            frame.render_stateful_widget(popup, popup_area, &mut state);
+        }
+
+        // Set cursor position (ensure it only shows when editing, not saving)
         let display_y = app.cursor_line.saturating_sub(app.scroll_offset as usize);
-        if display_y < columns[1].height.saturating_sub(2) as usize {
+        let display_x = app.cursor_col.saturating_sub(app.scroll_x as usize);
+        if display_y < columns[1].height.saturating_sub(2) as usize && display_x < columns[1].width.saturating_sub(2) as usize {
             frame.set_cursor_position(Position {
-                x: columns[1].x + app.cursor_col as u16 + 1,
+                x: columns[1].x + display_x as u16 + 1,
                 y: columns[1].y + display_y as u16 + 1,
             });
         }

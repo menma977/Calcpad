@@ -94,10 +94,35 @@ impl CalculatorService {
     }
 
     fn format_number(value: f64) -> String {
-        if value.fract() == 0.0 {
-            format!("{:.0}", value)
+        // Formatting function to use '.' as thousands separator and ',' as decimal separator
+        let is_negative = value < 0.0;
+        let abs_val = value.abs();
+        
+        let integer_part = abs_val.trunc() as u64;
+        let int_str = integer_part.to_string();
+        
+        // Add thousands separator (dot)
+        let mut formatted_int = String::new();
+        let chars: Vec<char> = int_str.chars().rev().collect();
+        for (i, c) in chars.iter().enumerate() {
+            if i > 0 && i % 3 == 0 {
+                formatted_int.push('.');
+            }
+            formatted_int.push(*c);
+        }
+        formatted_int = formatted_int.chars().rev().collect();
+
+        if is_negative {
+            formatted_int.insert(0, '-');
+        }
+
+        if abs_val.fract() == 0.0 {
+            formatted_int
         } else {
-            format!("{:.2}", value)
+            // Keep 2 decimal places and use comma
+            let frac_str = format!("{:.2}", abs_val.fract());
+            let frac_part = &frac_str[2..]; // skip "0."
+            format!("{},{}", formatted_int, frac_part)
         }
     }
 }

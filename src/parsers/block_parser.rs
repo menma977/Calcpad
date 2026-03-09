@@ -244,7 +244,8 @@ impl BlockParser {
                 .iter()
                 .collect::<String>()
                 == "else"
-            && (temp_cursor + 4 >= chars.len() || !chars[temp_cursor + 4].is_alphanumeric())
+            && (temp_cursor + 4 >= chars.len()
+                || (!chars[temp_cursor + 4].is_alphanumeric() && chars[temp_cursor + 4] != '_'))
         {
             cursor = temp_cursor + 4;
             if let Some((content_start, content_end, _)) = Self::find_next_block(&chars, cursor) {

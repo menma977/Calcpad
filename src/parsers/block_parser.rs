@@ -40,6 +40,53 @@ impl BlockParser {
         statements
     }
 
+    fn scan_braces(chars: &[char], start: usize) -> Option<(usize, usize, usize)> {
+        if start >= chars.len() || chars[start] != '{' {
+            return None;
+        }
+        let content_start = start + 1;
+        let mut cursor = start + 1;
+        let mut depth = 1;
+        while cursor < chars.len() && depth > 0 {
+            if chars[cursor] == '{' {
+                depth += 1;
+            } else if chars[cursor] == '}' {
+                depth -= 1;
+            }
+            cursor += 1;
+        }
+        if depth == 0 {
+            Some((content_start, cursor - 1, cursor))
+        } else {
+            None
+        }
+    }
+
+    fn find_next_block(chars: &[char], start: usize) -> Option<(usize, usize, usize)> {
+        let mut cursor = start;
+        while cursor < chars.len() {
+            // Skip string literals
+            if chars[cursor] == '"' {
+                cursor += 1;
+                while cursor < chars.len() && chars[cursor] != '"' {
+                    if chars[cursor] == '\\' && cursor + 1 < chars.len() {
+                        cursor += 2; // skip escaped char
+                    } else {
+                        cursor += 1;
+                    }
+                }
+                cursor += 1; // skip closing quote
+                continue;
+            }
+
+            if let Some(block) = Self::scan_braces(chars, cursor) {
+                return Some(block);
+            }
+            cursor += 1;
+        }
+        None
+    }
+
     fn parse_if_block(lines: &[String], start_index: usize) -> (Statement, usize) {
         let mut full_text = String::new();
         let mut line_byte_ranges: Vec<(usize, usize, usize)> = Vec::new(); // (byte_start, byte_end, line_idx)
@@ -62,11 +109,39 @@ impl BlockParser {
 
         // 1. Extract Condition: if ( ... )
         while cursor < chars.len() {
+            // Skip string literals
+            if chars[cursor] == '"' {
+                cursor += 1;
+                while cursor < chars.len() && chars[cursor] != '"' {
+                    if chars[cursor] == '\\' && cursor + 1 < chars.len() {
+                        cursor += 2;
+                    } else {
+                        cursor += 1;
+                    }
+                }
+                cursor += 1;
+                continue;
+            }
+
             if chars[cursor] == '(' {
                 let start = cursor + 1;
                 let mut cond_depth = 1;
                 cursor += 1;
                 while cursor < chars.len() && cond_depth > 0 {
+                    // Skip nested strings in condition
+                    if chars[cursor] == '"' {
+                        cursor += 1;
+                        while cursor < chars.len() && chars[cursor] != '"' {
+                            if chars[cursor] == '\\' && cursor + 1 < chars.len() {
+                                cursor += 2;
+                            } else {
+                                cursor += 1;
+                            }
+                        }
+                        cursor += 1;
+                        continue;
+                    }
+
                     if chars[cursor] == '(' {
                         cond_depth += 1;
                     } else if chars[cursor] == ')' {
@@ -85,23 +160,11 @@ impl BlockParser {
         }
 
         // 2. Extract True Block: { ... }
-        while cursor < chars.len() {
-            if chars[cursor] == '{' {
-                let start = cursor + 1;
-                let mut depth = 1;
-                cursor += 1;
-                while cursor < chars.len() && depth > 0 {
-                    if chars[cursor] == '{' {
-                        depth += 1;
-                    } else if chars[cursor] == '}' {
-                        depth -= 1;
-                    }
-                    cursor += 1;
-                }
-                true_block_indices = Some((start, cursor - 1));
-                break;
-            }
-            cursor += 1;
+        if let Some((content_start, content_end, next_cursor)) =
+            Self::find_next_block(&chars, cursor)
+        {
+            true_block_indices = Some((content_start, content_end));
+            cursor = next_cursor;
         }
 
         // 3. Extract Else Block: else { ... } (optional)
@@ -114,64 +177,68 @@ impl BlockParser {
                 .iter()
                 .collect::<String>()
                 == "else"
+            && (temp_cursor + 4 >= chars.len() || !chars[temp_cursor + 4].is_alphanumeric())
         {
             cursor = temp_cursor + 4;
-            while cursor < chars.len() {
-                if chars[cursor] == '{' {
-                    let start = cursor + 1;
-                    let mut depth = 1;
-                    cursor += 1;
-                    while cursor < chars.len() && depth > 0 {
-                        if chars[cursor] == '{' {
-                            depth += 1;
-                        } else if chars[cursor] == '}' {
-                            depth -= 1;
-                        }
-                        cursor += 1;
-                    }
-                    false_block_indices = Some((start, cursor - 1));
-                    break;
-                }
-                cursor += 1;
+            if let Some((content_start, content_end, next_cursor)) =
+                Self::find_next_block(&chars, cursor)
+            {
+                false_block_indices = Some((content_start, content_end));
+                cursor = next_cursor;
             }
         }
 
         let extract_stmts = |bounds: (usize, usize)| -> Vec<Statement> {
             let (start, end) = bounds;
             let mut stmts = Vec::new();
-            let mut current_line_idx = 0;
+            let mut current_line_idx: Option<usize> = None;
             let mut current_content = String::new();
 
             for char_idx in start..end {
-                // Find which line this character index belongs to via binary search
+                // Convert char index to byte index in full_text
+                let byte_idx = full_text[..char_idx].len();
+
+                // Find which line this byte index belongs to via binary search
                 let line_idx = line_byte_ranges
-                    .binary_search_by_key(&(char_idx as i32), |&(byte_start, _, _)| {
+                    .binary_search_by_key(&(byte_idx as i32), |&(byte_start, _, _)| {
                         byte_start as i32
                     })
                     .map(|idx| line_byte_ranges[idx].2)
                     .or_else(|idx| {
-                        if idx > 0 && char_idx < line_byte_ranges[idx].1 {
-                            Ok(line_byte_ranges[idx - 1].2)
+                        // idx from Err is the insertion point; can be == len()
+                        if idx > 0 && idx <= line_byte_ranges.len() {
+                            // Check if byte_idx falls within the previous range
+                            let prev_idx = idx - 1;
+                            if byte_idx < line_byte_ranges[prev_idx].1 {
+                                Ok(line_byte_ranges[prev_idx].2)
+                            } else {
+                                // byte_idx is past all ranges - use last line
+                                Ok(line_byte_ranges[prev_idx].2)
+                            }
                         } else {
                             Err(0)
                         }
                     })
                     .unwrap_or(0);
 
-                if current_line_idx == 0 || line_idx != current_line_idx {
-                    if !current_content.is_empty() {
-                        Self::push_line_stmts(&mut stmts, current_line_idx, &current_content);
+                if current_line_idx.is_none() || line_idx != current_line_idx.unwrap() {
+                    if let Some(idx) = current_line_idx {
+                        if !current_content.is_empty() {
+                            Self::push_line_stmts(&mut stmts, idx, &current_content);
+                        }
                     }
                     current_content.clear();
-                    current_line_idx = line_idx;
+                    current_line_idx = Some(line_idx);
                 }
 
                 if chars[char_idx] != '\n' {
                     current_content.push(chars[char_idx]);
                 }
             }
-            if !current_content.is_empty() {
-                Self::push_line_stmts(&mut stmts, current_line_idx, &current_content);
+            if let Some(idx) = current_line_idx {
+                if !current_content.is_empty() {
+                    Self::push_line_stmts(&mut stmts, idx, &current_content);
+                }
             }
             stmts
         };

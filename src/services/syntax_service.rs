@@ -11,7 +11,7 @@ pub fn highlight_line(line: &str) -> Line<'_> {
     let mut spans: Vec<Span> = Vec::new();
 
     if let Some(eq_pos) = line.find('=') {
-        // Simple heuristic to not color `==` as variable assignment
+        // Simple heuristic to doesn't color `==` as a variable assignment
         if !line[eq_pos..].starts_with("==")
             && !line[..eq_pos].ends_with('>')
             && !line[..eq_pos].ends_with('<')

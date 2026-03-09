@@ -51,18 +51,18 @@ impl StateService {
         let mut i = 0;
 
         while i < expr_chars.len() {
-            // Try to match variable name at current position
+            // Try to match the variable name at the current position
             let can_match = i + var_chars.len() <= expr_chars.len()
                 && expr_chars[i..i + var_chars.len()] == var_chars[..];
 
             if can_match {
-                // Check word boundary before
+                // Check the word boundary before
                 let before_valid = i == 0 || {
                     let prev_char = expr_chars[i - 1];
                     !prev_char.is_alphanumeric() && prev_char != '_'
                 };
 
-                // Check word boundary after
+                // Check the word boundary after
                 let after_valid = i + var_chars.len() == expr_chars.len() || {
                     let next_char = expr_chars[i + var_chars.len()];
                     !next_char.is_alphanumeric() && next_char != '_'

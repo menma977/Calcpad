@@ -132,11 +132,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         frame.render_widget(Clear, popup_area);
         frame.render_widget(popup, popup_area);
     } else {
+        let display_y = app.cursor_line.saturating_sub(app.scroll_offset as usize);
+        let display_x = app.cursor_col.saturating_sub(app.scroll_x as usize);
+
         // Render Autocomplete Popup
         if !app.autocomplete_options.is_empty() {
-            let display_y = app.cursor_line.saturating_sub(app.scroll_offset as usize);
-            let display_x = app.cursor_col.saturating_sub(app.scroll_x as usize);
-
             // Limit the popup size and prevent it from going out of bounds
             let popup_height = (app.autocomplete_options.len() as u16 + 2).min(5);
             let mut popup_width = 20;
@@ -149,7 +149,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 
             // Calculate x and y taking into account the borders
             let x = columns[1].x + display_x as u16 + 1; // +1 for left border
-            let mut y = columns[1].y + display_y as u16 + 2; // +1 for top border, +1 for next line
+            let mut y = columns[1].y + display_y as u16 + 2; // +1 for a top border, +1 for the next line
 
             // Flip above if not enough space below
             if y + popup_height > screen.height && y > popup_height + 2 {
@@ -192,9 +192,7 @@ pub fn render(frame: &mut Frame, app: &App) {
             frame.render_stateful_widget(popup, popup_area, &mut state);
         }
 
-        // Set cursor position (ensure it only shows when editing, not saving)
-        let display_y = app.cursor_line.saturating_sub(app.scroll_offset as usize);
-        let display_x = app.cursor_col.saturating_sub(app.scroll_x as usize);
+        // Set the cursor position (ensure it only shows when editing, not saving)
         if display_y < columns[1].height.saturating_sub(2) as usize
             && display_x < columns[1].width.saturating_sub(2) as usize
         {

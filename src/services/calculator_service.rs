@@ -50,7 +50,7 @@ impl CalculatorService {
                     let cond_val =
                         ExpressionService::evaluate(&self.state, condition).unwrap_or(0.0);
 
-                    if cond_val.abs() >= f64::EPSILON {
+                    if ExpressionService::is_truthy(cond_val) {
                         self.execute_statements(true_statements, results);
                     } else if let Some(false_stmts) = false_statements {
                         self.execute_statements(false_stmts, results);
@@ -102,6 +102,18 @@ impl CalculatorService {
         }
     }
 
+    fn format_integer_part(digits: &str) -> String {
+        let mut formatted = String::new();
+        let chars: Vec<char> = digits.chars().rev().collect();
+        for (i, c) in chars.iter().enumerate() {
+            if i > 0 && i % 3 == 0 {
+                formatted.push('.');
+            }
+            formatted.push(*c);
+        }
+        formatted.chars().rev().collect()
+    }
+
     fn format_number(value: f64) -> String {
         // Formatting function to use '.' as thousands separator and ',' as decimal separator
         let is_negative = value < 0.0;
@@ -116,39 +128,22 @@ impl CalculatorService {
         let int_str = integer_part.to_string();
 
         // Add thousands separator (dot)
-        let mut formatted_int = String::new();
-        let chars: Vec<char> = int_str.chars().rev().collect();
-        for (i, c) in chars.iter().enumerate() {
-            if i > 0 && i % 3 == 0 {
-                formatted_int.push('.');
-            }
-            formatted_int.push(*c);
-        }
-        formatted_int = formatted_int.chars().rev().collect();
+        let formatted_int = if is_negative {
+            format!("-{}", Self::format_integer_part(&int_str))
+        } else {
+            Self::format_integer_part(&int_str)
+        };
 
-        if is_negative {
-            formatted_int.insert(0, '-');
-        }
-
-        // Check if fractional part is negligible (within epsilon threshold)
+        // Check if the fractional part is negligible (within an epsilon threshold)
         if abs_val.fract().abs() < f64::EPSILON * abs_val.max(1.0) {
             formatted_int
         } else {
-            // Format entire number first to handle rounding correctly
+            // Format the entire number first to handle rounding correctly
             let rounded_str = format!("{:.2}", abs_val);
             let parts: Vec<&str> = rounded_str.split('.').collect();
 
             let integer_formatted = if parts[0].len() > 3 {
-                // Add thousands separator to the integer part
-                let mut result = String::new();
-                let reversed: Vec<char> = parts[0].chars().rev().collect();
-                for (i, c) in reversed.iter().enumerate() {
-                    if i > 0 && i % 3 == 0 {
-                        result.push('.');
-                    }
-                    result.push(*c);
-                }
-                result.chars().rev().collect::<String>()
+                Self::format_integer_part(parts[0])
             } else {
                 parts[0].to_string()
             };

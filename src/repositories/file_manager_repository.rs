@@ -1,6 +1,14 @@
 use std::fs;
 use std::path::Path;
 
+pub fn normalize_cpad_path(name: &str) -> String {
+    if name.ends_with(".cpad") {
+        name.to_string()
+    } else {
+        format!("{}.cpad", name)
+    }
+}
+
 pub fn save(lines: &[String], file_path: &str) -> Result<(), String> {
     let content = lines.join("\n");
     fs::write(file_path, content).map_err(|error| error.to_string())

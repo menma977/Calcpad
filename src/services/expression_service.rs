@@ -4,6 +4,10 @@ use crate::services::state_service::StateService;
 pub struct ExpressionService;
 
 impl ExpressionService {
+    pub fn is_truthy(val: f64) -> bool {
+        val.abs() >= f64::EPSILON
+    }
+
     pub fn evaluate(state: &StateService, expression: &str) -> Result<f64, String> {
         let trimmed = expression.trim();
         let replaced = state.replace_variables(trimmed)?;
@@ -108,7 +112,7 @@ impl ExpressionService {
 
                         match Self::parse_expression(condition_str) {
                             Ok(cond_val) => {
-                                if cond_val.abs() >= f64::EPSILON {
+                                if Self::is_truthy(cond_val) {
                                     Some(Self::parse_expression(true_branch))
                                 } else {
                                     Some(Self::parse_expression(false_branch))
@@ -229,12 +233,12 @@ impl ExpressionService {
             Operator::ShiftLeft => {
                 let left_i64 = Self::safe_to_i64(left)?;
                 let shift_amount = Self::safe_shift_amount(right)?;
-                Ok((left_i64).wrapping_shl(shift_amount) as f64)
+                Ok(left_i64.wrapping_shl(shift_amount) as f64)
             }
             Operator::ShiftRight => {
                 let left_i64 = Self::safe_to_i64(left)?;
                 let shift_amount = Self::safe_shift_amount(right)?;
-                Ok((left_i64).wrapping_shr(shift_amount) as f64)
+                Ok(left_i64.wrapping_shr(shift_amount) as f64)
             }
         }
     }

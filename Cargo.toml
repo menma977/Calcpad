@@ -2,6 +2,8 @@
 name = "calcpad"
 version = "0.1.0"
 edition = "2024"
+description = "A terminal calculator notepad: type math and variables in a TUI notepad, see every line's result live, save as plain-text .cpad files."
+license = "MIT"
 
 [dependencies]
 ratatui = "0.30.0"
